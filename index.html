@@ -34,6 +34,8 @@ button:hover{background:var(--ac2)}
 .dot.on{background:#98c379}
 #lk{position:fixed;top:10px;right:12px;background:none;border:0;color:var(--mut);cursor:pointer;font-size:15px;opacity:.55;width:auto;padding:4px}
 #lk:hover{opacity:1;color:var(--fg)}
+#im{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:50;overflow:auto;display:grid;place-items:center;cursor:zoom-out;padding:24px}
+#im img{margin:auto;max-width:none;max-height:none;border-radius:4px;box-shadow:0 8px 40px rgba(0,0,0,.8)}
 </style>
 </head>
 <body>
@@ -44,7 +46,7 @@ button:hover{background:var(--ac2)}
     <input id="pw" type="password" placeholder="Password">
     <button id="go">Open</button>
     <div id="err"></div>
-<!-- v12 -->
+<!-- v13 -->
   </div>
 </div>
 <div id="wait" hidden>
@@ -60,6 +62,7 @@ button:hover{background:var(--ac2)}
   <div id="ed" contenteditable="true" spellcheck="false"></div>
   <div id="bar"><span id="st">connecting...</span><span id="meta">0 words</span></div>
 </div>
+<div id="im" hidden><img id="imi" alt=""></div>
 <script>
 const $=i=>document.getElementById(i),TE=new TextEncoder(),TD=new TextDecoder(),ed=$('ed');
 let key,topic,pt,sv,peers=new Map(),mqs=[],seq=0,blobs=new Map(),asm=new Map();
@@ -292,6 +295,14 @@ function status(m){const n=livePeers(),up=mqs.length>0;
   $('st').innerHTML=`<span class="dot ${up&&n?'on':''}"></span>${s}`;
   $('wst').textContent=s}
 function meta(){const v=(ed.innerText||'').trim(),w=v?v.split(/\s+/).length:0;$('meta').textContent=`${w} word${w===1?'':'s'}`}
+ed.addEventListener('mousedown',e=>{if(e.target.tagName==='IMG')e.preventDefault()});
+ed.addEventListener('click',e=>{
+  const t=e.target;
+  if(t.tagName==='IMG'&&t.src){$('imi').src=t.src;$('im').hidden=false;document.body.style.overflow='hidden'}
+});
+function closeIm(){$('im').hidden=true;$('imi').removeAttribute('src');document.body.style.overflow=''}
+$('im').addEventListener('click',closeIm);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('im').hidden)closeIm()});
 $('go').onclick=unlock;
 $('pw').addEventListener('keydown',e=>{if(e.key==='Enter')unlock()});
 $('name').addEventListener('keydown',e=>{if(e.key==='Enter')unlock()});
