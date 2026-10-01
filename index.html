@@ -25,9 +25,10 @@ button:hover{background:var(--ac2)}
 #wait h1{animation:pulse 1.6s infinite}
 #err{color:#e06c75;font-size:12.5px;margin-top:10px;min-height:16px}
 #app{display:flex;flex-direction:column;height:100%}
-#ed{flex:1;width:100%;resize:none;border:0;outline:0;background:var(--bg);color:var(--fg);padding:32px max(20px,calc(50% - 380px));font:15px/1.7 ui-monospace,"Cascadia Code","JetBrains Mono",Menlo,Consolas,monospace;caret-color:var(--ac2)}
-#ed::selection{background:rgba(127,109,242,.35)}
-#ed::placeholder{color:#555}
+#ed{flex:1;width:100%;outline:0;overflow-y:auto;background:var(--bg);color:var(--fg);padding:32px max(20px,calc(50% - 380px));font:15px/1.7 ui-monospace,"Cascadia Code","JetBrains Mono",Menlo,Consolas,monospace;caret-color:var(--ac2);white-space:pre-wrap;word-break:break-word}
+#ed:empty:before{content:'Start typing or paste an image...';color:#555}
+#ed img{max-width:100%;border-radius:6px;margin:6px 0;display:block}
+#ed img:not([src]){min-height:60px;min-width:120px;background:#252526;border:1px dashed var(--bd)}
 #bar{display:flex;justify-content:space-between;gap:12px;background:var(--bg2);border-top:1px solid var(--bd);color:var(--mut);font-size:12px;padding:4px 12px;white-space:nowrap}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#555;margin-right:6px}
 .dot.on{background:#98c379}
@@ -45,7 +46,7 @@ button:hover{background:var(--ac2)}
     <button id="go">Open</button>
     <div id="err"></div>
     <p style="margin:14px 0 0;font-size:11px;color:#555">Share this URL + note name + password to invite someone. All traffic is end-to-end encrypted.</p>
-<!-- v9 -->
+<!-- v10 -->
   </div>
 </div>
 <div id="wait" hidden>
@@ -58,12 +59,12 @@ button:hover{background:var(--ac2)}
 </div>
 <div id="app" hidden>
   <button id="lk" title="lock">&#128274;</button>
-  <textarea id="ed" spellcheck="false" placeholder="Start typing..."></textarea>
+  <div id="ed" contenteditable="true" spellcheck="false"></div>
   <div id="bar"><span id="st">connecting...</span><span id="meta">0 words</span></div>
 </div>
 <script>
 const $=i=>document.getElementById(i),TE=new TextEncoder(),TD=new TextDecoder(),ed=$('ed');
-let key,topic,pt,sv,peers=new Map(),mqs=[],seq=0;
+let key,topic,pt,sv,peers=new Map(),mqs=[],seq=0,blobs=new Map();
 let clients=new Set(),gatei,hbi,dogi,down=0;
 const myId='lp-'+Math.random().toString(16).slice(2,10);
 const seen=new Set();
@@ -79,7 +80,7 @@ async function unlock(){
   const pw=$('pw').value,nm=$('name').value.trim()||'default';
   if(!pw)return;
   if(!crypto.subtle){$('err').textContent='Needs HTTPS (or localhost).';return}
-  if(typeof mqtt==='undefined'){$('err').textContent='MQTT lib failed to load: CDN blocked by network/adblock.';return}
+  if(typeof mqtt==='undefined'){$('err').textContent='MQTT lib failed to load.';return}
   $('err').textContent='';
   keepAwake();
   const km=await crypto.subtle.importKey('raw',TE.encode(pw),'PBKDF2',false,['deriveKey']);
@@ -89,7 +90,7 @@ async function unlock(){
   topic='livepad/'+hex;
   $('lock').hidden=true;showWait();
   $('wroom').textContent=hex.slice(0,8);
-  try{const d=localStorage.getItem(topic);if(d)ed.value=await dec(d)}catch(_){}
+  try{const d=localStorage.getItem(topic);if(d)ed.innerHTML=parseSafe(await dec(d));hydrate()}catch(_){}
   meta();connectAll();
   clearInterval(gatei);gatei=setInterval(gate,10000);
   clearInterval(dogi);down=0;dogi=setInterval(()=>{
@@ -121,8 +122,8 @@ function keepAwake(){
 
 async function lockdown(msg){
   if(!key)return;
-  clearTimeout(sv);try{localStorage.setItem(topic,await enc(ed.value))}catch(_){}
-  ed.value='';meta();
+  clearTimeout(sv);try{localStorage.setItem(topic,await enc(serialize()))}catch(_){}
+  ed.innerHTML='';meta();
   for(const c of clients)try{c.end(true)}catch(_){}
   clients.clear();mqs=[];peers.clear();key=null;
   clearInterval(hbi);clearInterval(gatei);clearInterval(dogi);
@@ -136,7 +137,7 @@ function connectAll(){
     const c=mqtt.connect(url,{clientId:myId+'-'+i,connectTimeout:7000,reconnectPeriod:4000,keepalive:0,
       will:{topic,payload:JSON.stringify({t:'bye',from:myId,id:myId+':w'+i})}});
     clients.add(c);
-    c.on('connect',()=>{c._host=host;if(!mqs.includes(c))mqs.push(c);c.subscribe(topic,{qos:0});
+    c.on('connect',()=>{c._host=host;if(!mqs.includes(c))mqs.push(c);c.subscribe(topic+'/#',{qos:0});
       c.publish(topic,JSON.stringify({t:'hi',from:myId,id:myId+':'+(++seq)}));status()});
     c.on('message',(tp,pl)=>onMsg(pl));
     c.on('close',()=>{const j=mqs.indexOf(c);if(j>-1)mqs.splice(j,1);status()});
@@ -145,8 +146,8 @@ function connectAll(){
   clearInterval(hbi);hbi=setInterval(()=>pub({t:'hb'}),15000);
 }
 
-function pub(m){m.from=myId;m.id=myId+':'+(++seq);
-  for(const c of mqs)try{c.publish(topic,JSON.stringify(m),{qos:0,retain:m.t==='u'&&!m.r})}catch(_){}}
+function pub(m,sub){m.from=myId;m.id=myId+':'+(++seq);
+  for(const c of mqs)try{c.publish(topic+(sub||''),JSON.stringify(m),{qos:0,retain:(m.t==='u'&&!m.r)||m.t==='img'})}catch(_){}}
 
 async function onMsg(pl){
   let m;try{m=JSON.parse(pl.toString())}catch(_){return}
@@ -155,7 +156,9 @@ async function onMsg(pl){
     if(seen.size>800)seen.delete(seen.values().next().value)}
   if(m.t==='bye'){peers.delete(m.from);gate();return}
   if(m.t==='hi'||m.t==='hb'){peers.set(m.from,Date.now());gate();
-    if(m.t==='hi'){pub({t:'hb'});if(ed.value)pub({t:'u',d:await enc(ed.value),r:1})}return}
+    if(m.t==='hi'){pub({t:'hb'});if(ed.textContent.trim()||ed.querySelector('img'))pub({t:'u',d:await enc(serialize()),r:1})}return}
+  if(m.t==='img'){try{blobs.set(m.b,await dec(m.d));hydrate()}catch(_){}return}
+  if(m.t==='imgreq'){const d=blobs.get(m.b);if(d)pub({t:'img',b:m.b,d:await enc(d)},'/i/'+m.b);return}
   if(m.t==='u'){let t;try{t=await dec(m.d)}catch(_){return}applyRemote(t);save()}
 }
 
@@ -164,21 +167,104 @@ function gate(){const n=livePeers();status();if(n>0)showApp();else showWait()}
 function showWait(){$('wait').hidden=false;$('app').hidden=true}
 function showApp(){$('wait').hidden=true;$('app').hidden=false;ed.focus()}
 
+function sanitize(root){
+  for(const ch of [...root.childNodes]){
+    if(ch.nodeType===3)continue;
+    if(ch.nodeType!==1){ch.remove();continue}
+    const t=ch.tagName;
+    if(t==='IMG'){
+      const b=ch.getAttribute('data-b')||'',nu=document.createElement('img');
+      if(/^[a-z0-9]{6,20}$/i.test(b))nu.setAttribute('data-b',b);
+      ch.replaceWith(nu);continue;
+    }
+    if(t==='DIV'||t==='P'||t==='BR'){
+      for(const a of [...ch.attributes])ch.removeAttribute(a.name);
+      sanitize(ch);continue;
+    }
+    ch.replaceWith(document.createTextNode(ch.textContent));
+  }
+}
+
+function parseSafe(t){
+  const d=new DOMParser().parseFromString(t,'text/html');
+  sanitize(d.body);
+  return d.body.innerHTML;
+}
+
+function serialize(){
+  const c=ed.cloneNode(true);
+  c.querySelectorAll('img').forEach(im=>{im.removeAttribute('src');im.removeAttribute('alt')});
+  return c.innerHTML;
+}
+
+function hydrate(){
+  ed.querySelectorAll('img[data-b]').forEach(el=>{
+    const id=el.getAttribute('data-b'),d=blobs.get(id);
+    if(d){if(el.src!==d)el.src=d}
+    else{el.removeAttribute('src');el.alt='syncing image...';pub({t:'imgreq',b:id})}
+  });
+}
+
+function caretPos(){const s=getSelection();if(!s.rangeCount)return 0;
+  const r=s.getRangeAt(0),pre=r.cloneRange();
+  pre.selectNodeContents(ed);pre.setEnd(r.startContainer,r.startOffset);
+  return pre.toString().length}
+function setCaret(pos){const w=document.createTreeWalker(ed,NodeFilter.SHOW_TEXT);let n,l=0;
+  while(n=w.nextNode()){if(l+n.length>=pos){const s=getSelection(),r=document.createRange();
+    r.setStart(n,pos-l);r.collapse(true);s.removeAllRanges();s.addRange(r);return}l+=n.length}}
+
 function applyRemote(t){
-  if(ed.value===t)return;
-  const o=ed.value,s=ed.selectionStart,e=ed.selectionEnd,sc=ed.scrollTop;
-  let p=0;while(p<o.length&&p<t.length&&o[p]===t[p])p++;
-  let x=0;while(x<o.length-p&&x<t.length-p&&o[o.length-1-x]===t[t.length-1-x])x++;
-  const adj=v=>v<=p?v:v>=o.length-x?t.length-(o.length-v):p;
-  ed.value=t;
-  try{ed.selectionStart=Math.min(adj(s),t.length);ed.selectionEnd=Math.min(adj(e),t.length)}catch(_){}
+  if(t===serialize())return;
+  const focused=document.activeElement===ed,pos=focused?caretPos():0,sc=ed.scrollTop;
+  ed.innerHTML=parseSafe(t);hydrate();
+  if(focused)try{setCaret(Math.min(pos,ed.textContent.length))}catch(_){}
   ed.scrollTop=sc;meta();
 }
 
+function insertAtCaret(node){
+  const s=getSelection();
+  if(s.rangeCount&&ed.contains(s.getRangeAt(0).startContainer)){
+    const r=s.getRangeAt(0);r.deleteContents();r.insertNode(node);
+    r.setStartAfter(node);r.collapse(true);s.removeAllRanges();s.addRange(r);
+  }else ed.appendChild(node);
+}
+
+function addImage(f){
+  const rd=new FileReader();
+  rd.onload=()=>{const im=new Image();im.onload=async()=>{
+    let max=1400,q=0.85,d='';
+    const cv=document.createElement('canvas'),cx=cv.getContext('2d');
+    for(;;){
+      const k=Math.min(1,max/Math.max(im.width,im.height));
+      cv.width=Math.max(1,Math.round(im.width*k));cv.height=Math.max(1,Math.round(im.height*k));
+      cx.clearRect(0,0,cv.width,cv.height);cx.drawImage(im,0,0,cv.width,cv.height);
+      d=cv.toDataURL('image/webp',q);
+      if(!d.startsWith('data:image/webp'))d=cv.toDataURL('image/jpeg',q);
+      if(d.length<=600000||max<=300)break;
+      max=Math.round(max*0.7);q=Math.max(0.4,q-0.15);
+    }
+    const id=Math.random().toString(36).slice(2,14);
+    blobs.set(id,d);
+    pub({t:'img',b:id,d:await enc(d)},'/i/'+id);
+    const el=document.createElement('img');el.setAttribute('data-b',id);el.src=d;
+    insertAtCaret(el);
+    ed.dispatchEvent(new Event('input'));
+  };im.src=rd.result};
+  rd.readAsDataURL(f);
+}
+
+ed.addEventListener('paste',e=>{
+  e.preventDefault();
+  const cd=e.clipboardData;if(!cd)return;
+  const it=[...cd.items].find(i=>i.type.startsWith('image/'));
+  if(it){const f=it.getAsFile();if(f)addImage(f);return}
+  const t=cd.getData('text/plain');
+  if(t){insertAtCaret(document.createTextNode(t));ed.dispatchEvent(new Event('input'))}
+});
 ed.addEventListener('input',()=>{meta();save();clearTimeout(pt);pt=setTimeout(push,120)});
-ed.addEventListener('keydown',e=>{if(e.key==='Tab'){e.preventDefault();ed.setRangeText('  ',ed.selectionStart,ed.selectionEnd,'end');ed.dispatchEvent(new Event('input'))}});
-async function push(){pub({t:'u',d:await enc(ed.value)})}
-function save(){clearTimeout(sv);sv=setTimeout(async()=>{try{localStorage.setItem(topic,await enc(ed.value))}catch(_){}},250)}
+ed.addEventListener('keydown',e=>{if(e.key==='Tab'){e.preventDefault();insertAtCaret(document.createTextNode('  '));ed.dispatchEvent(new Event('input'))}});
+async function push(){pub({t:'u',d:await enc(serialize())})}
+function save(){clearTimeout(sv);sv=setTimeout(async()=>{try{localStorage.setItem(topic,await enc(serialize()))}catch(_){}},250)}
 function status(m){const n=livePeers(),up=mqs.length>0;
   let s;
   if(m)s=m;
@@ -187,7 +273,7 @@ function status(m){const n=livePeers(),up=mqs.length>0;
   else s='Connected · waiting for peer';
   $('st').innerHTML=`<span class="dot ${up&&n?'on':''}"></span>${s}`;
   $('wst').textContent=s}
-function meta(){const v=ed.value.trim(),w=v?v.split(/\s+/).length:0;$('meta').textContent=`${w} word${w===1?'':'s'}`}
+function meta(){const v=(ed.innerText||'').trim(),w=v?v.split(/\s+/).length:0;$('meta').textContent=`${w} word${w===1?'':'s'}`}
 $('go').onclick=unlock;
 $('pw').addEventListener('keydown',e=>{if(e.key==='Enter')unlock()});
 $('name').addEventListener('keydown',e=>{if(e.key==='Enter')unlock()});
