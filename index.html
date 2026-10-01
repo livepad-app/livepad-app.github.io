@@ -44,7 +44,7 @@ button:hover{background:var(--ac2)}
     <input id="pw" type="password" placeholder="password">
     <button id="go">Open</button>
     <div id="err"></div>
-    <p style="margin:14px 0 0;font-size:11px;color:#555">v7 · multi-broker</p>
+    <p style="margin:14px 0 0;font-size:11px;color:#555">v8 · multi-broker</p>
   </div>
 </div>
 <div id="wait" hidden>
@@ -80,6 +80,7 @@ async function unlock(){
   if(!crypto.subtle){$('err').textContent='Needs HTTPS (or localhost).';return}
   if(typeof mqtt==='undefined'){$('err').textContent='MQTT lib failed to load: CDN blocked by network/adblock.';return}
   $('err').textContent='';
+  keepAwake();
   const km=await crypto.subtle.importKey('raw',TE.encode(pw),'PBKDF2',false,['deriveKey']);
   key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:TE.encode('livepad-v2'),iterations:600000,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
   const h=new Uint8Array(await crypto.subtle.digest('SHA-256',TE.encode('livepad-room2:'+nm+':'+pw)));
@@ -92,7 +93,7 @@ async function unlock(){
   clearInterval(gatei);gatei=setInterval(gate,10000);
   clearInterval(dogi);down=0;dogi=setInterval(()=>{
     if(!key)return;
-    if(mqs.length===0){down+=5;if(down>=45)lockdown('Connection lost: session locked, re-enter password.')}
+    if(mqs.length===0){down+=5;if(down>=120)lockdown('Connection lost: session locked, re-enter password.')}
     else down=0;
   },5000);
   setTimeout(()=>{if(!$('wait').hidden)$('whint').hidden=false},20000);
@@ -100,9 +101,22 @@ async function unlock(){
 
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden||!key)return;
+  keepAwake();
   for(const c of clients)if(!c.connected)try{c.reconnect()}catch(_){}
   pub({t:'hi'});
 });
+
+let ac;
+function keepAwake(){
+  try{
+    ac=ac||new (window.AudioContext||window.webkitAudioContext)();
+    if(ac.state==='suspended')ac.resume();
+    if(ac._lp)return;ac._lp=1;
+    const o=ac.createOscillator(),g=ac.createGain();
+    g.gain.value=0.0001;o.frequency.value=1;
+    o.connect(g);g.connect(ac.destination);o.start();
+  }catch(_){}
+}
 
 async function lockdown(msg){
   if(!key)return;
@@ -118,7 +132,7 @@ async function lockdown(msg){
 function connectAll(){
   BROKERS.forEach((url,i)=>{
     const host=url.split('/')[2];
-    const c=mqtt.connect(url,{clientId:myId+'-'+i,connectTimeout:7000,reconnectPeriod:4000,keepalive:60,
+    const c=mqtt.connect(url,{clientId:myId+'-'+i,connectTimeout:7000,reconnectPeriod:4000,keepalive:0,
       will:{topic,payload:JSON.stringify({t:'bye',from:myId,id:myId+':w'+i})}});
     clients.add(c);
     c.on('connect',()=>{c._host=host;if(!mqs.includes(c))mqs.push(c);c.subscribe(topic,{qos:0});
