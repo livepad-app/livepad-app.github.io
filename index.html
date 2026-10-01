@@ -46,7 +46,7 @@ button:hover{background:var(--ac2)}
     <input id="pw" type="password" placeholder="Password">
     <button id="go">Open</button>
     <div id="err"></div>
-<!-- v15 -->
+<!-- v16 -->
   </div>
 </div>
 <div id="wait" hidden>
@@ -170,6 +170,7 @@ async function onMsg(pl){
   if(m.t==='u'){
     let t;try{t=await dec(m.d)}catch(_){return}
     const v=m.v||0;
+    if(m.v===undefined&&lastV!==0)return;
     lamport=Math.max(lamport,v);
     if(v<lastV||(v===lastV&&m.from<=lastFrom))return;
     const L=serialize(),B=lastBase;
