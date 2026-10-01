@@ -46,7 +46,7 @@ button:hover{background:var(--ac2)}
     <input id="pw" type="password" placeholder="Password">
     <button id="go">Open</button>
     <div id="err"></div>
-<!-- v13 -->
+<!-- v14 -->
   </div>
 </div>
 <div id="wait" hidden>
@@ -66,6 +66,7 @@ button:hover{background:var(--ac2)}
 <script>
 const $=i=>document.getElementById(i),TE=new TextEncoder(),TD=new TextDecoder(),ed=$('ed');
 let key,topic,pt,sv,peers=new Map(),mqs=[],seq=0,blobs=new Map(),asm=new Map();
+let lamport=0,lastV=0,lastFrom='',lastBase='',lastPush=null;
 let clients=new Set(),gatei,hbi,dogi,down=0;
 const myId='lp-'+Math.random().toString(16).slice(2,10);
 const seen=new Set();
@@ -92,7 +93,7 @@ async function unlock(){
   topic='livepad/'+hex;
   $('lock').hidden=true;showWait();
   $('wroom').textContent=hex.slice(0,8);
-  try{const d=localStorage.getItem(topic);if(d)ed.innerHTML=parseSafe(await dec(d));await loadBlobs();hydrate()}catch(_){}
+  try{const d=localStorage.getItem(topic);if(d)ed.innerHTML=parseSafe(await dec(d));await loadBlobs();hydrate();lastBase=serialize();lastV=0;lastFrom=''}catch(_){}
   meta();connectAll();
   clearInterval(gatei);gatei=setInterval(gate,10000);
   clearInterval(dogi);down=0;dogi=setInterval(()=>{
@@ -158,7 +159,7 @@ async function onMsg(pl){
     if(seen.size>800)seen.delete(seen.values().next().value)}
   if(m.t==='bye'){peers.delete(m.from);gate();return}
   if(m.t==='hi'||m.t==='hb'){peers.set(m.from,Date.now());gate();
-    if(m.t==='hi'){pub({t:'hb'});if(ed.textContent.trim()||ed.querySelector('img'))pub({t:'u',d:await enc(serialize()),r:1})}return}
+    if(m.t==='hi'){pub({t:'hb'});if(ed.textContent.trim()||ed.querySelector('img'))pub({t:'u',v:lastV,d:await enc(serialize()),r:1})}return}
   if(m.t==='img'){const k=m.k||1,n=m.n||0;
     let a=asm.get(m.b);if(!a){a={k,p:[]};asm.set(m.b,a)}
     a.k=k;a.p[n]=m.d;
@@ -166,7 +167,25 @@ async function onMsg(pl){
       try{blobs.set(m.b,await dec(a.p.join('')));hydrate();cacheBlob(m.b)}catch(_){}}
     return}
   if(m.t==='imgreq'){const d=blobs.get(m.b);if(d)pubBlob(m.b,d);return}
-  if(m.t==='u'){let t;try{t=await dec(m.d)}catch(_){return}applyRemote(t);save()}
+  if(m.t==='u'){
+    let t;try{t=await dec(m.d)}catch(_){return}
+    const v=m.v||0;
+    lamport=Math.max(lamport,v);
+    if(v<lastV||(v===lastV&&m.from<=lastFrom))return;
+    const L=serialize(),B=lastBase;
+    let nd=t;
+    if(t===L){}
+    else if(L!==B)nd=merge3(B,diffOf(B,L),t,myId,m.from)||t;
+    else if(lastPush&&lastPush.v<=v)nd=merge3(lastPush.base,lastPush.d,t,myId,m.from)||t;
+    if(nd!==L){
+      const focused=document.activeElement===ed,pos=focused?caretPos():0,sc=ed.scrollTop;
+      ed.innerHTML=parseSafe(nd);hydrate();
+      if(focused)try{setCaret(Math.min(pos,ed.textContent.length))}catch(_){}
+      ed.scrollTop=sc;meta();
+    }
+    lastV=v;lastFrom=m.from;lastBase=t;save();
+    if(nd!==t&&nd!==L){clearTimeout(pt);pt=setTimeout(push,80)}
+    return}
 }
 
 function livePeers(){const now=Date.now();for(const[id,ts]of peers)if(now-ts>120000)peers.delete(id);return peers.size}
@@ -212,6 +231,23 @@ function hydrate(){
   });
 }
 
+function diffOf(base,cur){let p=0;const bl=base.length,cl=cur.length;
+  while(p<bl&&p<cl&&base[p]===cur[p])p++;
+  let s=0;while(s<bl-p&&s<cl-p&&base[bl-1-s]===cur[cl-1-s])s++;
+  return{p,s,mid:cur.slice(p,cl-s)}}
+
+function merge3(B,d,t,me,remote){
+  if(t.slice(0,d.p)!==B.slice(0,d.p)||t.slice(t.length-d.s)!==B.slice(B.length-d.s))return null;
+  const theirMid=t.slice(d.p,t.length-d.s),myRegion=B.slice(d.p,B.length-d.s);
+  if(theirMid===myRegion)return t.slice(0,d.p)+d.mid+t.slice(t.length-d.s);
+  if(myRegion===''&&d.mid){
+    if(theirMid.startsWith(d.mid)||theirMid.endsWith(d.mid))return t;
+    const seg=me<remote?d.mid+theirMid:theirMid+d.mid;
+    return t.slice(0,d.p)+seg+t.slice(t.length-d.s);
+  }
+  return null;
+}
+
 function caretPos(){const s=getSelection();if(!s.rangeCount)return 0;
   const r=s.getRangeAt(0),pre=r.cloneRange();
   pre.selectNodeContents(ed);pre.setEnd(r.startContainer,r.startOffset);
@@ -219,14 +255,6 @@ function caretPos(){const s=getSelection();if(!s.rangeCount)return 0;
 function setCaret(pos){const w=document.createTreeWalker(ed,NodeFilter.SHOW_TEXT);let n,l=0;
   while(n=w.nextNode()){if(l+n.length>=pos){const s=getSelection(),r=document.createRange();
     r.setStart(n,pos-l);r.collapse(true);s.removeAllRanges();s.addRange(r);return}l+=n.length}}
-
-function applyRemote(t){
-  if(t===serialize())return;
-  const focused=document.activeElement===ed,pos=focused?caretPos():0,sc=ed.scrollTop;
-  ed.innerHTML=parseSafe(t);hydrate();
-  if(focused)try{setCaret(Math.min(pos,ed.textContent.length))}catch(_){}
-  ed.scrollTop=sc;meta();
-}
 
 function insertAtCaret(node){
   const s=getSelection();
@@ -284,7 +312,9 @@ ed.addEventListener('paste',e=>{
 });
 ed.addEventListener('input',()=>{meta();save();clearTimeout(pt);pt=setTimeout(push,120)});
 ed.addEventListener('keydown',e=>{if(e.key==='Tab'){e.preventDefault();insertAtCaret(document.createTextNode('  '));ed.dispatchEvent(new Event('input'))}});
-async function push(){pub({t:'u',d:await enc(serialize())})}
+async function push(){const pb=lastBase;lastBase=serialize();lastV=++lamport;lastFrom=myId;
+  lastPush={v:lastV,base:pb,d:diffOf(pb,lastBase)};
+  pub({t:'u',v:lastV,d:await enc(lastBase)})}
 function save(){clearTimeout(sv);sv=setTimeout(async()=>{try{localStorage.setItem(topic,await enc(serialize()))}catch(_){}},250)}
 function status(m){const n=livePeers(),up=mqs.length>0;
   let s;
