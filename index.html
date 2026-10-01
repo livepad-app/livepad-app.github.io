@@ -44,7 +44,8 @@ button:hover{background:var(--ac2)}
     <input id="pw" type="password" placeholder="password">
     <button id="go">Open</button>
     <div id="err"></div>
-    <p style="margin:14px 0 0;font-size:11px;color:#555">v8 · multi-broker</p>
+    <p style="margin:14px 0 0;font-size:11px;color:#555">Share this URL + note name + password to invite someone. All traffic is end-to-end encrypted.</p>
+<!-- v9 -->
   </div>
 </div>
 <div id="wait" hidden>
@@ -178,10 +179,13 @@ ed.addEventListener('input',()=>{meta();save();clearTimeout(pt);pt=setTimeout(pu
 ed.addEventListener('keydown',e=>{if(e.key==='Tab'){e.preventDefault();ed.setRangeText('  ',ed.selectionStart,ed.selectionEnd,'end');ed.dispatchEvent(new Event('input'))}});
 async function push(){pub({t:'u',d:await enc(ed.value)})}
 function save(){clearTimeout(sv);sv=setTimeout(async()=>{try{localStorage.setItem(topic,await enc(ed.value))}catch(_){}},250)}
-function status(m){const n=livePeers();
-  const h=mqs.map(c=>c._host.split(':')[0]).join('+')||'no broker';
-  const s=m||`${h} · room ${topic.split('/')[1].slice(0,8)} · ${n} peer${n===1?'':'s'}`;
-  $('st').innerHTML=m?m:`<span class="dot ${n?'on':''}"></span>${s}`;
+function status(m){const n=livePeers(),up=mqs.length>0;
+  let s;
+  if(m)s=m;
+  else if(!up)s='Connecting...';
+  else if(n)s=`Connected · ${n} peer${n===1?'':'s'}`;
+  else s='Connected · waiting for peer';
+  $('st').innerHTML=`<span class="dot ${up&&n?'on':''}"></span>${s}`;
   $('wst').textContent=s}
 function meta(){const v=ed.value.trim(),w=v?v.split(/\s+/).length:0;$('meta').textContent=`${w} word${w===1?'':'s'}`}
 $('go').onclick=unlock;
