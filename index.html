@@ -46,7 +46,7 @@ button:hover{background:var(--ac2)}
     <input id="pw" type="password" placeholder="Password">
     <button id="go">Open</button>
     <div id="err"></div>
-<!-- v14 -->
+<!-- v15 -->
   </div>
 </div>
 <div id="wait" hidden>
@@ -137,7 +137,7 @@ async function lockdown(msg){
 function connectAll(){
   BROKERS.forEach((url,i)=>{
     const host=url.split('/')[2];
-    const c=mqtt.connect(url,{clientId:myId+'-'+i,connectTimeout:7000,reconnectPeriod:4000,keepalive:0,
+    const c=mqtt.connect(url,{clientId:myId+'-'+i,connectTimeout:7000,reconnectPeriod:2000,keepalive:45,
       will:{topic,payload:JSON.stringify({t:'bye',from:myId,id:myId+':w'+i})}});
     clients.add(c);
     c.on('connect',()=>{c._host=host;if(!mqs.includes(c))mqs.push(c);c.subscribe(topic+'/#',{qos:0});
