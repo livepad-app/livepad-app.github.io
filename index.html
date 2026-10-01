@@ -44,7 +44,7 @@ button:hover{background:var(--ac2)}
     <input id="pw" type="password" placeholder="password">
     <button id="go">Open</button>
     <div id="err"></div>
-    <p style="margin:14px 0 0;font-size:11px;color:#555">v6 · multi-broker</p>
+    <p style="margin:14px 0 0;font-size:11px;color:#555">v7 · multi-broker</p>
   </div>
 </div>
 <div id="wait" hidden>
@@ -63,6 +63,7 @@ button:hover{background:var(--ac2)}
 <script>
 const $=i=>document.getElementById(i),TE=new TextEncoder(),TD=new TextDecoder(),ed=$('ed');
 let key,topic,pt,sv,peers=new Map(),mqs=[],seq=0;
+let clients=new Set(),gatei,hbi,dogi,down=0;
 const myId='lp-'+Math.random().toString(16).slice(2,10);
 const seen=new Set();
 const ALLB=['wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt','wss://test.mosquitto.org:8081/mqtt'];
@@ -88,22 +89,45 @@ async function unlock(){
   $('wroom').textContent=hex.slice(0,8);
   try{const d=localStorage.getItem(topic);if(d)ed.value=await dec(d)}catch(_){}
   meta();connectAll();
-  setInterval(gate,10000);
+  clearInterval(gatei);gatei=setInterval(gate,10000);
+  clearInterval(dogi);down=0;dogi=setInterval(()=>{
+    if(!key)return;
+    if(mqs.length===0){down+=5;if(down>=45)lockdown('Connection lost: session locked, re-enter password.')}
+    else down=0;
+  },5000);
   setTimeout(()=>{if(!$('wait').hidden)$('whint').hidden=false},20000);
+}
+
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden||!key)return;
+  for(const c of clients)if(!c.connected)try{c.reconnect()}catch(_){}
+  pub({t:'hi'});
+});
+
+async function lockdown(msg){
+  if(!key)return;
+  clearTimeout(sv);try{localStorage.setItem(topic,await enc(ed.value))}catch(_){}
+  ed.value='';meta();
+  for(const c of clients)try{c.end(true)}catch(_){}
+  clients.clear();mqs=[];peers.clear();key=null;
+  clearInterval(hbi);clearInterval(gatei);clearInterval(dogi);
+  $('app').hidden=true;$('wait').hidden=true;$('whint').hidden=true;$('lock').hidden=false;
+  $('pw').value='';$('err').textContent=msg;$('pw').focus();
 }
 
 function connectAll(){
   BROKERS.forEach((url,i)=>{
     const host=url.split('/')[2];
-    const c=mqtt.connect(url,{clientId:myId+'-'+i,connectTimeout:7000,reconnectPeriod:4000,keepalive:30,
+    const c=mqtt.connect(url,{clientId:myId+'-'+i,connectTimeout:7000,reconnectPeriod:4000,keepalive:60,
       will:{topic,payload:JSON.stringify({t:'bye',from:myId,id:myId+':w'+i})}});
-    c.on('connect',()=>{c._host=host;mqs.push(c);c.subscribe(topic,{qos:0});
+    clients.add(c);
+    c.on('connect',()=>{c._host=host;if(!mqs.includes(c))mqs.push(c);c.subscribe(topic,{qos:0});
       c.publish(topic,JSON.stringify({t:'hi',from:myId,id:myId+':'+(++seq)}));status()});
     c.on('message',(tp,pl)=>onMsg(pl));
     c.on('close',()=>{const j=mqs.indexOf(c);if(j>-1)mqs.splice(j,1);status()});
     c.on('error',()=>{});
   });
-  setInterval(()=>pub({t:'hb'}),15000);
+  clearInterval(hbi);hbi=setInterval(()=>pub({t:'hb'}),15000);
 }
 
 function pub(m){m.from=myId;m.id=myId+':'+(++seq);
@@ -120,7 +144,7 @@ async function onMsg(pl){
   if(m.t==='u'){let t;try{t=await dec(m.d)}catch(_){return}applyRemote(t);save()}
 }
 
-function livePeers(){const now=Date.now();for(const[id,ts]of peers)if(now-ts>45000)peers.delete(id);return peers.size}
+function livePeers(){const now=Date.now();for(const[id,ts]of peers)if(now-ts>120000)peers.delete(id);return peers.size}
 function gate(){const n=livePeers();status();if(n>0)showApp();else showWait()}
 function showWait(){$('wait').hidden=false;$('app').hidden=true}
 function showApp(){$('wait').hidden=true;$('app').hidden=false;ed.focus()}
@@ -149,7 +173,7 @@ function meta(){const v=ed.value.trim(),w=v?v.split(/\s+/).length:0;$('meta').te
 $('go').onclick=unlock;
 $('pw').addEventListener('keydown',e=>{if(e.key==='Enter')unlock()});
 $('name').addEventListener('keydown',e=>{if(e.key==='Enter')unlock()});
-$('lk').onclick=()=>location.reload();
+$('lk').onclick=()=>lockdown('Locked.');
 </script>
 </body>
 </html>
