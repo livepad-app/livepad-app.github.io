@@ -200,7 +200,7 @@ async function onMsg(pl){
       if(focused)try{setCaret(Math.min(pos,ed.textContent.length))}catch(_){}
       ed.scrollTop=sc;meta();
     }
-    lastV=v;lastFrom=m.from;lastBase=t;save();
+    lastV=v;lastFrom=m.from;lastBase=serialize();save();
     if(nd!==t){clearTimeout(pt);pt=setTimeout(push,80)}
     return}
 }
