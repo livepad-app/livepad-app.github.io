@@ -80,6 +80,7 @@ const enc=async t=>{const iv=crypto.getRandomValues(new Uint8Array(12));const c=
 const dec=async s=>{const b=ub(s);return TD.decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b.slice(0,12)},key,b.slice(12)))};
 
 async function unlock(){
+  let stale=0;
   const pw=$('pw').value,nm=$('name').value.trim()||'default';
   if(!pw)return;
   if(!crypto.subtle){$('err').textContent='Needs HTTPS (or localhost).';return}
@@ -93,8 +94,14 @@ async function unlock(){
   topic='livepad/'+hex;
   $('lock').hidden=true;showWait();
   $('wroom').textContent=hex.slice(0,8);
+  try{const ts=+localStorage.getItem(topic+'/ts')||0;
+    if(ts&&Date.now()-ts>432e5){stale=1;
+      for(let i=localStorage.length-1;i>=0;i--){const k=localStorage.key(i);
+        if(k&&(k===topic||k.startsWith(topic+'/')))localStorage.removeItem(k)}
+    }}catch(_){}
   try{const d=localStorage.getItem(topic);if(d)ed.innerHTML=parseSafe(await dec(d));await loadBlobs();hydrate();lastBase=serialize();lastV=0;lastFrom=''}catch(_){}
   meta();connectAll();
+  if(stale)setTimeout(()=>{for(const c of mqs)try{c.publish(topic,'',{retain:true})}catch(_){}},5000);
   clearInterval(gatei);gatei=setInterval(gate,10000);
   clearInterval(dogi);down=0;dogi=setInterval(()=>{
     if(!key)return;
@@ -137,7 +144,7 @@ async function lockdown(msg){
 function connectAll(){
   BROKERS.forEach((url,i)=>{
     const host=url.split('/')[2];
-    const c=mqtt.connect(url,{clientId:myId+'-'+i,connectTimeout:7000,reconnectPeriod:2000,keepalive:45,
+    const c=mqtt.connect(url,{clientId:myId+'-'+i,connectTimeout:7000,reconnectPeriod:2000,keepalive:45,protocolVersion:5,
       will:{topic,payload:JSON.stringify({t:'bye',from:myId,id:myId+':w'+i})}});
     clients.add(c);
     c.on('connect',()=>{c._host=host;if(!mqs.includes(c))mqs.push(c);c.subscribe(topic+'/#',{qos:0});
@@ -149,8 +156,8 @@ function connectAll(){
   clearInterval(hbi);hbi=setInterval(()=>pub({t:'hb'}),15000);
 }
 
-function pub(m,sub){m.from=myId;m.id=myId+':'+(++seq);
-  for(const c of mqs)try{c.publish(topic+(sub||''),JSON.stringify(m),{qos:0,retain:(m.t==='u'&&!m.r)||m.t==='img'})}catch(_){}}
+function pub(m,sub){m.from=myId;m.id=myId+':'+(++seq);const rt=(m.t==='u'&&!m.r)||m.t==='img';
+  for(const c of mqs)try{c.publish(topic+(sub||''),JSON.stringify(m),{qos:0,retain:rt,...(rt?{properties:{messageExpiryInterval:43200}}:{})})}catch(_){}}
 
 async function onMsg(pl){
   let m;try{m=JSON.parse(pl.toString())}catch(_){return}
@@ -316,7 +323,7 @@ ed.addEventListener('keydown',e=>{if(e.key==='Tab'){e.preventDefault();insertAtC
 async function push(){const pb=lastBase;lastBase=serialize();lastV=++lamport;lastFrom=myId;
   lastPush={v:lastV,base:pb,d:diffOf(pb,lastBase)};
   pub({t:'u',v:lastV,d:await enc(lastBase)})}
-function save(){clearTimeout(sv);sv=setTimeout(async()=>{try{localStorage.setItem(topic,await enc(serialize()))}catch(_){}},250)}
+function save(){clearTimeout(sv);sv=setTimeout(async()=>{try{localStorage.setItem(topic,await enc(serialize()));localStorage.setItem(topic+'/ts',Date.now())}catch(_){}},250)}
 function status(m){const n=livePeers(),up=mqs.length>0;
   let s;
   if(m)s=m;
