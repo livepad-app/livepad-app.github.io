@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#1e1e1e">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src wss:; base-uri 'none'; form-action 'none'">
 <title>LivePad</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%231e1e1e'/><rect x='3' y='3' width='10' height='2' fill='%237f6df2'/><rect x='3' y='7' width='8' height='2' fill='%237f6df2'/><rect x='3' y='11' width='9' height='2' fill='%237f6df2'/></svg>">
 <script src="vendor/mqtt.min.js"></script>
@@ -45,8 +46,9 @@ button:hover{background:var(--ac2)}
     <input id="name" placeholder="Room" autocomplete="off">
     <input id="pw" type="password" placeholder="Password">
     <button id="go">Open</button>
+    <button id="gen" type="button" style="background:none;border:1px solid var(--bd);color:var(--mut);font-weight:400">Generate secure room link</button>
     <div id="err"></div>
-<!-- v16 -->
+<!-- v21 -->
   </div>
 </div>
 <div id="wait" hidden>
@@ -89,7 +91,7 @@ async function unlock(){
   $('err').textContent='';
   keepAwake();
   const km=await crypto.subtle.importKey('raw',TE.encode(pw),'PBKDF2',false,['deriveKey']);
-  key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:TE.encode('livepad-v2'),iterations:600000,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+  key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:TE.encode('livepad-v3:'+nm),iterations:600000,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
   const h=new Uint8Array(await crypto.subtle.digest('SHA-256',TE.encode('livepad-room2:'+nm+':'+pw)));
   const hex=[...h].map(x=>x.toString(16).padStart(2,'0')).join('').slice(0,20);
   topic='livepad/'+hex;
@@ -142,14 +144,15 @@ async function lockdown(msg){
   $('pw').value='';$('err').textContent=msg;$('pw').focus();
 }
 
-function connectAll(){
+async function connectAll(){
+  const bye=JSON.stringify({t:'c',d:await enc(JSON.stringify({t:'bye',from:myId,id:myId+':w'}))});
   BROKERS.forEach((url,i)=>{
     const host=url.split('/')[2];
     const c=mqtt.connect(url,{clientId:myId+'-'+i,connectTimeout:7000,reconnectPeriod:2000,keepalive:45,protocolVersion:5,
-      will:{topic,payload:JSON.stringify({t:'bye',from:myId,id:myId+':w'+i})}});
+      will:{topic,payload:bye}});
     clients.add(c);
     c.on('connect',()=>{c._host=host;if(!mqs.includes(c))mqs.push(c);c.subscribe(topic+'/#',{qos:0});
-      c.publish(topic,JSON.stringify({t:'hi',from:myId,id:myId+':'+(++seq)}));status();
+      pub({t:'hi'});status();
       (async()=>{if(lastV>0&&(ed.textContent.trim()||ed.querySelector('img')))pubU(lastV,serialize(),1)})()});
     c.on('message',(tp,pl)=>onMsg(pl));
     c.on('close',()=>{const j=mqs.indexOf(c);if(j>-1)mqs.splice(j,1);status()});
@@ -158,11 +161,14 @@ function connectAll(){
   clearInterval(hbi);hbi=setInterval(()=>pub({t:'hb',v:lastV,h:h32(lastBase)}),15000);
 }
 
-function pub(m,sub){m.from=myId;m.id=myId+':'+(++seq);const rt=(m.t==='u'&&!m.r)||m.t==='img';
-  for(const c of mqs)try{c.publish(topic+(sub||''),JSON.stringify(m),{qos:0,retain:rt,...(rt?{properties:{messageExpiryInterval:43200}}:{})})}catch(_){}}
+async function pub(m,sub){m.from=myId;m.id=myId+':'+(++seq);const rt=(m.t==='u'&&!m.r)||m.t==='img';
+  let pl;try{pl=JSON.stringify({t:'c',d:await enc(JSON.stringify(m))})}catch(_){return}
+  for(const c of mqs)try{c.publish(topic+(sub||''),pl,{qos:0,retain:rt,...(rt?{properties:{messageExpiryInterval:43200}}:{})})}catch(_){}}
 
 async function onMsg(pl){
   let m;try{m=JSON.parse(pl.toString())}catch(_){return}
+  if(!m||m.t!=='c')return;
+  try{m=JSON.parse(await dec(m.d))}catch(_){return}
   if(!m||m.from===myId)return;
   if(m.id){if(seen.has(m.id))return;seen.add(m.id);
     if(seen.size>800)seen.delete(seen.values().next().value)}
@@ -362,6 +368,13 @@ function closeIm(){$('im').hidden=true;$('imi').removeAttribute('src');document.
 $('im').addEventListener('click',closeIm);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('im').hidden)closeIm()});
 $('go').onclick=unlock;
+const hp=new URLSearchParams(location.hash.slice(1));
+if(hp.get('pw'))$('pw').value=hp.get('pw');
+$('gen').onclick=async()=>{const a=new Uint8Array(24);crypto.getRandomValues(a);
+  const k=b64(a).replace(/[^a-z0-9]/gi,'').slice(0,22);
+  $('pw').value=k;const u=location.origin+location.pathname+'#pw='+k;
+  try{await navigator.clipboard.writeText(u);$('err').textContent='Strong password set, room link copied to clipboard.'}
+  catch(_){$('err').textContent='Strong password set. Copy it from the address bar after opening.';location.hash='pw='+k}};
 $('pw').addEventListener('keydown',e=>{if(e.key==='Enter')unlock()});
 $('name').addEventListener('keydown',e=>{if(e.key==='Enter')unlock()});
 $('lk').onclick=()=>lockdown('Locked.');

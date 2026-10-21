@@ -41,5 +41,5 @@ Then enable Pages as above.
 ## Notes and limits
 
 - Sync rides free public MQTT brokers (broker.emqx.io, test.mosquitto.org). Fine for a notepad; do not treat them as guaranteed infrastructure.
-- Not end-to-end audited; use a strong password. Anyone with the password can read and edit.
+- Security (v21): all protocol traffic (presence, sync, updates) rides inside AES-GCM envelopes; the broker sees only ciphertext blobs. Per-room KDF salt (note name is mixed in), CSP-locked page, and a one-click "Generate secure room link" that puts a ~130-bit random key in the URL fragment (never sent to any server). Use the generator for anything sensitive; a hand-typed weak password is the only soft spot left. v21 clients do not inter-operate with older versions.
 - One room is one note. Use different note names for multiple pads.
