@@ -55,9 +55,12 @@ button:hover{background:var(--ac2)}
 <div id="wait" hidden>
   <div class="card" style="text-align:center">
     <h1>Waiting...</h1>
-    <p>Room <b id="wroom"></b> is open. The notepad unlocks when the other side joins with the same password.</p>
+    <p>Room <b id="wroom"></b> is open. The notepad unlocks when the other side joins.</p>
+    <p id="wcode" style="font:15px/1.6 ui-monospace,Menlo,Consolas,monospace;color:var(--ac2);word-break:break-all;margin:0 0 10px"></p>
+    <button id="cl" type="button" style="background:none;border:1px solid var(--bd);color:var(--mut);font-weight:400;margin-top:0">Copy invite link</button>
     <p id="wst" style="font-size:12px;color:var(--mut)"></p>
-    <p id="whint" style="font-size:12px;color:#e0af68" hidden>Still alone after 20s? Check the room code (and pad name, if you set one) is identical on both sides. A wrong code silently opens a different empty room.</p>
+    <p id="whint" style="font-size:12px;color:#e0af68" hidden>Still alone after 20s? Make sure the other side opened the same link or typed the code exactly.</p>
+    <p id="jr" style="margin:12px 0 0;font-size:12px;color:var(--mut);cursor:pointer">join a different room</p>
   </div>
 </div>
 <div id="app" hidden>
@@ -100,6 +103,8 @@ async function unlock(){
   topic='livepad/'+hex;
   $('lock').hidden=true;showWait();
   $('wroom').textContent=hex.slice(0,8);
+  $('wcode').textContent=pw;
+  history.replaceState(null,'','#pw='+encodeURIComponent(pw)+(nm!=='default'?'&n='+encodeURIComponent(nm):''));
   try{const ts=+localStorage.getItem(topic+'/ts')||0;
     if(ts&&Date.now()-ts>432e5){stale=1;
       for(let i=localStorage.length-1;i>=0;i--){const k=localStorage.key(i);
@@ -371,11 +376,17 @@ function closeIm(){$('im').hidden=true;$('imi').removeAttribute('src');document.
 $('im').addEventListener('click',closeIm);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('im').hidden)closeIm()});
 $('go').onclick=unlock;
-const hp=new URLSearchParams(location.hash.slice(1));
-if(hp.get('pw'))$('pw').value=hp.get('pw');
-$('gen').onclick=async()=>{const w=[],u=new Uint32Array(1);
+function newCode(){const w=[],u=new Uint32Array(1);
   for(let i=0;i<6;i++){let r;do{crypto.getRandomValues(u);r=u[0]}while(r>=4294966032);w.push(WL[r%1296])}
-  const k=w.join('-');$('pw').value=k;const u2=location.origin+location.pathname+'#pw='+k;
+  return w.join('-')}
+const hp=new URLSearchParams(location.hash.slice(1));
+if(hp.get('n'))$('name').value=hp.get('n');
+if(hp.get('pw'))$('pw').value=hp.get('pw');
+if(!$('pw').value)$('pw').value=newCode();
+unlock();
+$('cl').onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$('cl').textContent='Link copied'}catch(_){}};
+$('jr').onclick=()=>{lockdown('');if(!hp.get('pw'))$('pw').value=''};
+$('gen').onclick=async()=>{const k=newCode();$('pw').value=k;const u2=location.origin+location.pathname+'#pw='+k;
   try{await navigator.clipboard.writeText(u2);$('err').textContent='Room code (link copied): '+k}
   catch(_){$('err').textContent='Room code: '+k}};
 $('adv').onclick=()=>{$('name').hidden=!$('name').hidden;if(!$('name').hidden)$('name').focus()};

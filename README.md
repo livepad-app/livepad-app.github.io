@@ -34,10 +34,10 @@ Then enable Pages as above.
 
 ## Usage
 
-1. Open the page, click **Generate room code** (or type your own code).
-2. Read the six-word code to your other machine or collaborator, or paste the copied link.
+1. Open the page: a fresh six-word room code is generated and the room opens automatically, no clicks.
+2. In the lobby, hit **Copy invite link** and send it, or just read the six words aloud. The other side opens the link (auto-joins), or opens the page, picks "join a different room", and types the words.
 3. Type. Both sides see edits within a fraction of a second.
-4. Want several separate pads? Use the "multiple pads?" link on the lock screen to add a pad name.
+4. Want several separate pads? Use the "multiple pads?" link on the lock screen to add a pad name (invite links carry it too).
 
 ## Notes and limits
 
