@@ -76,6 +76,7 @@ const BROKERS=qb&&ALLB.some(u=>u.includes(qb))?ALLB.filter(u=>u.includes(qb)):AL
 const b64=b=>{let s='';for(let i=0;i<b.length;i+=32768)s+=String.fromCharCode.apply(null,b.subarray(i,i+32768));return btoa(s)};
 const CHUNK=200000,MAXB=8*1024*1024;
 const ub=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+const h32=s=>{let h=5381;for(let i=0;i<s.length;i++)h=(h*33^s.charCodeAt(i))>>>0;return h.toString(36)};
 const enc=async t=>{const iv=crypto.getRandomValues(new Uint8Array(12));const c=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},key,TE.encode(t)));const b=new Uint8Array(12+c.length);b.set(iv);b.set(c,12);return b64(b)};
 const dec=async s=>{const b=ub(s);return TD.decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b.slice(0,12)},key,b.slice(12)))};
 
@@ -154,7 +155,7 @@ function connectAll(){
     c.on('close',()=>{const j=mqs.indexOf(c);if(j>-1)mqs.splice(j,1);status()});
     c.on('error',()=>{});
   });
-  clearInterval(hbi);hbi=setInterval(()=>pub({t:'hb'}),15000);
+  clearInterval(hbi);hbi=setInterval(()=>pub({t:'hb',v:lastV,h:h32(lastBase)}),15000);
 }
 
 function pub(m,sub){m.from=myId;m.id=myId+':'+(++seq);const rt=(m.t==='u'&&!m.r)||m.t==='img';
@@ -167,7 +168,11 @@ async function onMsg(pl){
     if(seen.size>800)seen.delete(seen.values().next().value)}
   if(m.t==='bye'){peers.delete(m.from);gate();return}
   if(m.t==='hi'||m.t==='hb'){peers.set(m.from,Date.now());gate();
-    if(m.t==='hi'){pub({t:'hb'});if(ed.textContent.trim()||ed.querySelector('img'))pubU(lastV,serialize(),1)}return}
+    if(m.v!==undefined){
+      if(m.v>lastV)pub({t:'sync'});
+      else if(m.v===lastV&&m.h&&m.h!==h32(lastBase)&&myId>m.from)pubU(lastV,serialize(),1)}
+    if(m.t==='hi'){pub({t:'hb',v:lastV,h:h32(lastBase)});if(ed.textContent.trim()||ed.querySelector('img'))pubU(lastV,serialize(),1)}return}
+  if(m.t==='sync'){if(lastV>0||ed.textContent.trim())pubU(lastV,serialize(),1);return}
   if(m.t==='ureq'){if(lastCU&&lastCU.b===m.b){const d=lastCU.d,k=Math.ceil(d.length/CHUNK);
     for(let n=0;n<k;n++)pub({t:'u',v:lastCU.v,b:m.b,k,n,d:d.slice(n*CHUNK,(n+1)*CHUNK)},'/u/'+m.b+'/'+n)}return}
   if(m.t==='img'){const k=m.k||1,n=m.n||0;
@@ -179,16 +184,17 @@ async function onMsg(pl){
   if(m.t==='imgreq'){const d=blobs.get(m.b);if(d)pubBlob(m.b,d);return}
   if(m.t==='u'){
     if(m.b){let a=asm.get('u'+m.b);if(!a){a={k:m.k,p:[],v:0,q:0};asm.set('u'+m.b,a)}
-      a.k=m.k;a.v=a.v||m.v||0;if(m.d)a.p[m.n]=m.d;
+      a.k=m.k;a.v=a.v||m.v||0;if(m.d)a.p[m.n]=m.d;a.h=a.h||m.h;
       if(!a.v||a.p.filter(Boolean).length!==a.k){
         if(!a.q){a.q=1;setTimeout(()=>{if(asm.has('u'+m.b))pub({t:'ureq',b:m.b})},4000)}
         return}
-      asm.delete('u'+m.b);m.d=a.p.join('');m.v=a.v}
+      asm.delete('u'+m.b);m.d=a.p.join('');m.v=a.v;m.h=a.h}
     let t;try{t=await dec(m.d)}catch(_){return}
     const v=m.v||0;
     if(m.v===undefined&&lastV!==0)return;
     lamport=Math.max(lamport,v);
-    if(v<lastV||(v===lastV&&m.from<=lastFrom))return;
+    if(v<lastV)return;
+    if(v===lastV&&m.from<=lastFrom&&!(m.r&&m.h&&m.h!==h32(lastBase)&&m.from>myId))return;
     const L=serialize(),B=lastBase;
     let nd=t;
     if(t===L){}
@@ -329,12 +335,12 @@ ed.addEventListener('paste',e=>{
 });
 ed.addEventListener('input',()=>{meta();save();clearTimeout(pt);pt=setTimeout(push,120)});
 ed.addEventListener('keydown',e=>{if(e.key==='Tab'){e.preventDefault();insertAtCaret(document.createTextNode('  '));ed.dispatchEvent(new Event('input'))}});
-async function pubU(v,html,r){const d=await enc(html);
-  if(d.length<=CHUNK){pub({t:'u',v,d,r});return}
+async function pubU(v,html,r){const d=await enc(html),h=h32(html);
+  if(d.length<=CHUNK){pub({t:'u',v,d,r,h});return}
   const b=Math.random().toString(36).slice(2,14),k=Math.ceil(d.length/CHUNK);
   if(!r)lastCU={b,v,d};
-  for(let n=0;n<k;n++)pub({t:'u',v,b,k,n,r,d:d.slice(n*CHUNK,(n+1)*CHUNK)},'/u/'+b+'/'+n);
-  pub({t:'u',v,b,k,r})}
+  for(let n=0;n<k;n++)pub({t:'u',v,b,k,n,r,h,d:d.slice(n*CHUNK,(n+1)*CHUNK)},'/u/'+b+'/'+n);
+  pub({t:'u',v,b,k,r,h})}
 async function push(){const pb=lastBase;lastBase=serialize();lastV=++lamport;lastFrom=myId;
   lastPush={v:lastV,base:pb,d:diffOf(pb,lastBase)};pubU(lastV,lastBase)}
 function save(){clearTimeout(sv);sv=setTimeout(async()=>{try{localStorage.setItem(topic,await enc(serialize()));localStorage.setItem(topic+'/ts',Date.now())}catch(_){}},250)}
