@@ -34,12 +34,13 @@ Then enable Pages as above.
 
 ## Usage
 
-1. Open the page, pick a note name (optional) and a password.
-2. Share the URL, note name, and password with your collaborator.
+1. Open the page, click **Generate room code** (or type your own code).
+2. Read the six-word code to your other machine or collaborator, or paste the copied link.
 3. Type. Both sides see edits within a fraction of a second.
+4. Want several separate pads? Use the "multiple pads?" link on the lock screen to add a pad name.
 
 ## Notes and limits
 
 - Sync rides free public MQTT brokers (broker.emqx.io, test.mosquitto.org). Fine for a notepad; do not treat them as guaranteed infrastructure.
 - Security (v21): all protocol traffic (presence, sync, updates) rides inside AES-GCM envelopes; the broker sees only ciphertext blobs. Per-room KDF salt (note name is mixed in), CSP-locked page, and a one-click "Generate room code" that makes a six-word ~62-bit key (easy to read out and type on another machine) and also copies a ready-made room link with the key in the URL fragment (never sent to any server). Use the generator for anything sensitive; a hand-typed weak password is the only soft spot left. v21 clients do not inter-operate with older versions.
-- One room is one note. Use different note names for multiple pads.
+- One room is one note. Use different pad names for multiple pads on the same code.
